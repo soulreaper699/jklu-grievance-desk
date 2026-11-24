@@ -3700,13 +3700,13 @@
       const STAGES = ["Submitted", "In Review", "Action Taken", "Resolved"];
       const STUDENTS = ["Chirag Negi", "Aisha Verma", "Rohan Mehta"];
       const FACULTY = [
-        { name: "Dr. Priya Sharma", dept: "Computer Science", designation: "HOD, Computer Science & Engineering" },
-        { name: "Dr. Rajesh Singhal", dept: "Mechanical Engineering", designation: "HOD, Mechanical Engineering" },
-        { name: "Dr. Vikram Malhotra", dept: "Electrical Engineering", designation: "HOD, Electrical Engineering" },
-        { name: "Chief Warden (Prof. S. K. Verma)", dept: "Hostel & Facilities", designation: "Hostel & Facilities Management" },
-        { name: "Mr. Manoj Joshi", dept: "Finance & Accounts", designation: "Chief Finance & Accounts Officer" },
-        { name: "Dr. Aman Kapoor", dept: "Administration", designation: "Dean of Student Affairs" },
-        { name: "Prof. Sunita Gupta", dept: "Internal Complaints Committee (ICC)", designation: "Presiding Officer, ICC" }
+        { name: "Dr. Priya Sharma", email: "priya.sharma@jklu.edu.in", dept: "Computer Science", designation: "HOD, Computer Science & Engineering" },
+        { name: "Dr. Rajesh Singhal", email: "rajesh.singhal@jklu.edu.in", dept: "Mechanical Engineering", designation: "HOD, Mechanical Engineering" },
+        { name: "Dr. Vikram Malhotra", email: "vikram.malhotra@jklu.edu.in", dept: "Electrical Engineering", designation: "HOD, Electrical Engineering" },
+        { name: "Chief Warden (Prof. S. K. Verma)", email: "warden@jklu.edu.in", dept: "Hostel & Facilities", designation: "Hostel & Facilities Management" },
+        { name: "Mr. Manoj Joshi", email: "manoj.joshi@jklu.edu.in", dept: "Finance & Accounts", designation: "Chief Finance & Accounts Officer" },
+        { name: "Dr. Aman Kapoor", email: "aman.kapoor@jklu.edu.in", dept: "Administration", designation: "Dean of Student Affairs" },
+        { name: "Prof. Sunita Gupta", email: "icc@jklu.edu.in", dept: "Internal Complaints Committee (ICC)", designation: "Presiding Officer, ICC" }
       ];
       const ADMIN_NAME = "Registrar's Office";
 
@@ -3717,6 +3717,23 @@
         "Fees & Finance": ["Finance & Accounts", "Administration"],
         "Harassment": ["Internal Complaints Committee (ICC)"]
       };
+
+      function resolveHandlerForDept(dept) {
+        const fromFaculty = FACULTY.find(f => f.dept === dept);
+        if (fromFaculty) return fromFaculty;
+        const fromUsers = db && Array.isArray(db.users)
+          ? db.users.find(u => u.role === "faculty" && u.dept === dept)
+          : null;
+        if (fromUsers) {
+          return {
+            name: fromUsers.name,
+            email: fromUsers.email,
+            dept: fromUsers.dept,
+            designation: fromUsers.designation || fromUsers.dept
+          };
+        }
+        return FACULTY.find(f => f.dept === "Administration") || FACULTY[0];
+      }
 
       function escapeHtml(str) {
         if (!str) return "";
@@ -3761,8 +3778,18 @@
           s.departments.forEach(dep => { if (!d.departments.includes(dep)) d.departments.push(dep); });
         }
         if (!d.categories) d.categories = s.categories;
+        else {
+          s.categories.forEach(cat => { if (!d.categories.includes(cat)) d.categories.push(cat); });
+        }
         if (!d.notifications) d.notifications = [];
         if (!d.users || !d.users.length) d.users = s.users;
+        else {
+          s.users.forEach(su => {
+            if (!d.users.some(u => u.email.toLowerCase() === su.email.toLowerCase())) {
+              d.users.push(su);
+            }
+          });
+        }
         d.complaints.forEach(c => {
           if (!c.attachments) c.attachments = [];
           if (c.confidential === undefined) c.confidential = c.category === "Harassment";
@@ -3838,12 +3865,48 @@
               verified: true
             },
             {
+              id: "usr_4b",
+              name: "Dr. Rajesh Singhal",
+              email: "rajesh.singhal@jklu.edu.in",
+              role: "faculty",
+              dept: "Mechanical Engineering",
+              designation: "HOD, Mechanical Engineering",
+              passwordHash: "79efb54c5fe18cf00f0bbbc8c645e093c3bc2d07cd80fd84b03631836f59d7e0",
+              salt: "salt_jklu",
+              authProvider: "microsoft_365",
+              verified: true
+            },
+            {
+              id: "usr_4c",
+              name: "Dr. Vikram Malhotra",
+              email: "vikram.malhotra@jklu.edu.in",
+              role: "faculty",
+              dept: "Electrical Engineering",
+              designation: "HOD, Electrical Engineering",
+              passwordHash: "79efb54c5fe18cf00f0bbbc8c645e093c3bc2d07cd80fd84b03631836f59d7e0",
+              salt: "salt_jklu",
+              authProvider: "microsoft_365",
+              verified: true
+            },
+            {
               id: "usr_5",
               name: "Chief Warden (Prof. S. K. Verma)",
               email: "warden@jklu.edu.in",
               role: "faculty",
               dept: "Hostel & Facilities",
-              designation: "Chief Warden & Facilities",
+              designation: "Hostel & Facilities Management",
+              passwordHash: "79efb54c5fe18cf00f0bbbc8c645e093c3bc2d07cd80fd84b03631836f59d7e0",
+              salt: "salt_jklu",
+              authProvider: "microsoft_365",
+              verified: true
+            },
+            {
+              id: "usr_5b",
+              name: "Mr. Manoj Joshi",
+              email: "manoj.joshi@jklu.edu.in",
+              role: "faculty",
+              dept: "Finance & Accounts",
+              designation: "Chief Finance & Accounts Officer",
               passwordHash: "79efb54c5fe18cf00f0bbbc8c645e093c3bc2d07cd80fd84b03631836f59d7e0",
               salt: "salt_jklu",
               authProvider: "microsoft_365",
@@ -3887,8 +3950,8 @@
             }
           ],
           notifications: [
-            { forUser: "Dr. Aman Kapoor", text: "New complaint CMP-1001 was routed to you.", when: now - 1000 * 60 * 60 * 50 },
-            { forUser: "Chirag Negi", text: "Dr. Aman Kapoor commented on CMP-1001.", when: now - 1000 * 60 * 60 * 20 },
+            { forUser: "Chief Warden (Prof. S. K. Verma)", text: "New complaint CMP-1001 was routed to you.", when: now - 1000 * 60 * 60 * 50 },
+            { forUser: "Chirag Negi", text: "Chief Warden (Prof. S. K. Verma) commented on CMP-1001.", when: now - 1000 * 60 * 60 * 20 },
             { forUser: "Chirag Negi", text: "CMP-1002 was marked Resolved.", when: now - 1000 * 60 * 60 * 24 * 2 }
           ],
           complaints: [
@@ -3898,14 +3961,14 @@
               desc: "The hostel mess has been serving undercooked food for the past week. Several students reported stomach issues after dinner on Tuesday.",
               category: "Hostel", department: "Hostel & Facilities",
               student: "Chirag Negi", studentEmail: "chirag.negi@jklu.edu.in",
-              faculty: "Dr. Aman Kapoor", facultyEmail: "aman.kapoor@jklu.edu.in",
+              faculty: "Chief Warden (Prof. S. K. Verma)", facultyEmail: "warden@jklu.edu.in",
               stageIndex: 1, escalated: false, confidential: false,
               created: now - 1000 * 60 * 60 * 50,
               attachments: ["dinner_tray_photo.jpg"],
               upvotes: ["Aisha Verma", "Rohan Mehta"],
               comments: [
                 { who: "Chirag Negi", text: "Attaching photos of yesterday's dinner for reference.", when: now - 1000 * 60 * 60 * 48 },
-                { who: "Dr. Aman Kapoor", text: "Forwarded to the mess contractor for a response by Friday.", when: now - 1000 * 60 * 60 * 20 }
+                { who: "Chief Warden (Prof. S. K. Verma)", text: "Forwarded to the mess contractor for a response by Friday.", when: now - 1000 * 60 * 60 * 20 }
               ]
             },
             {
@@ -3936,7 +3999,7 @@
               attachments: [],
               upvotes: [],
               comments: [
-                { who: "Dr. Aman Kapoor", text: "Received. This will only be visible to me and you while it's under review.", when: now - 1000 * 60 * 60 * 28 }
+                { who: "Prof. Sunita Gupta", text: "Received. This will only be visible to me and you while it's under review.", when: now - 1000 * 60 * 60 * 28 }
               ]
             },
             {
@@ -4152,7 +4215,10 @@
           const email = chip.dataset.quick;
           const lEmail = document.getElementById("l_email");
           const lPass = document.getElementById("l_pass");
-          if (lEmail) lEmail.value = email;
+          if (lEmail) {
+            lEmail.value = email;
+            lEmail.dispatchEvent(new Event("input"));
+          }
           const user = db.users.find(u => u.email === email);
           if (lPass && user) {
             lPass.value = user.role === "student" ? "student123" : user.role === "faculty" ? "faculty123" : "admin123";
@@ -4735,7 +4801,7 @@
           Array.from(fileInput.files).forEach(f => {
             const row = document.createElement("div");
             row.className = "attach-row";
-            row.innerHTML = `<span class="clip">📎</span><span>${f.name}</span>`;
+            row.innerHTML = `<span class="clip">📎</span><span>${escapeHtml(f.name)}</span>`;
             fileListWrap.appendChild(row);
           });
         });
@@ -4746,7 +4812,7 @@
         const confChk = panel.querySelector("#f_conf");
         const confLabel = panel.querySelector("#f_conf_label");
 
-        function syncDepartmentsAndHandler() {
+        function syncDepartmentsAndHandler(preserveDept = false) {
           const cat = catSel.value;
           // Update visual cards active state
           panel.querySelectorAll(".cat-card").forEach(c => {
@@ -4754,8 +4820,10 @@
             else c.classList.remove("active");
           });
 
-          // Fetch allowed departments for the category
-          const allowedDepts = CATEGORY_DEPARTMENT_MAP[cat] || db.departments;
+          // Fetch allowed departments for the category, respecting admin-configured departments
+          const mapped = CATEGORY_DEPARTMENT_MAP[cat];
+          const filtered = mapped ? mapped.filter(d => db.departments.includes(d)) : [];
+          const allowedDepts = filtered.length ? filtered : db.departments;
           const curDept = deptSel.value;
           deptSel.innerHTML = "";
           allowedDepts.forEach(d => {
@@ -4765,27 +4833,33 @@
             deptSel.appendChild(opt);
           });
 
-          if (allowedDepts.includes(curDept)) {
+          if (preserveDept && allowedDepts.includes(curDept)) {
             deptSel.value = curDept;
           } else {
-            deptSel.value = allowedDepts[0];
+            deptSel.value = allowedDepts[0] || "";
           }
           updateRoutingPreview();
         }
 
         function updateRoutingPreview() {
           const dept = deptSel.value;
-          const handler = FACULTY.find(f => f.dept === dept) || FACULTY[0];
-          deptNote.innerHTML = `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#10B981; flex-shrink:0;"></span> <span>⚡ Routed to: <strong style="color:var(--ink);">${handler.name}</strong> <span style="opacity:0.85;">(${handler.designation || handler.dept})</span></span>`;
+          const handler = resolveHandlerForDept(dept);
+          deptNote.innerHTML = `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#10B981; flex-shrink:0;"></span> <span>⚡ Routed to: <strong style="color:var(--ink);">${escapeHtml(handler.name)}</strong> <span style="opacity:0.85;">(${escapeHtml(handler.designation || handler.dept)})</span></span>`;
         }
 
+        let confAutoSet = false;
         function syncConfidential() {
           if (catSel.value === "Harassment") {
             confChk.checked = true;
             confChk.disabled = true;
+            confAutoSet = true;
             confLabel.innerHTML = `<strong style="color:#DC2626;">🔒 Mandatory Confidential:</strong> Automatically protected under ICC confidentiality rules. Only you and the ICC Presiding Officer will see this case.`;
           } else {
             confChk.disabled = false;
+            if (confAutoSet) {
+              confChk.checked = false;
+              confAutoSet = false;
+            }
             confLabel.textContent = "Keep this confidential — visible only to me and the assigned handler";
           }
         }
@@ -4794,27 +4868,28 @@
         panel.querySelectorAll(".cat-card").forEach(card => {
           card.addEventListener("click", () => {
             catSel.value = card.dataset.cat;
-            syncDepartmentsAndHandler();
+            syncDepartmentsAndHandler(false);
             syncConfidential();
           });
         });
 
         catSel.addEventListener("change", () => {
-          syncDepartmentsAndHandler();
+          syncDepartmentsAndHandler(false);
           syncConfidential();
         });
         deptSel.addEventListener("change", updateRoutingPreview);
 
         // Initial sync
-        syncDepartmentsAndHandler();
+        syncDepartmentsAndHandler(false);
         syncConfidential();
 
         panel.querySelector("#f_submit").addEventListener("click", () => {
           const title = panel.querySelector("#f_title").value.trim();
           const desc = panel.querySelector("#f_desc").value.trim();
           if (!title || !desc) { toast("Add a title and description first"); return; }
+          if (desc.length < 10) { toast("Please enter a description of at least 10 characters"); return; }
           const dept = panel.querySelector("#f_dept").value;
-          const handler = FACULTY.find(f => f.dept === dept) || FACULTY[0];
+          const handler = resolveHandlerForDept(dept);
           const c = {
             id: "CMP-" + (db.nextId++),
             title, desc,
@@ -4882,7 +4957,7 @@
         }
         db.complaints.forEach(c => {
           const safeC = sanitizeComplaint(c, currentUserAccount, role);
-          if (canView(safeC)) content.appendChild(ticketCard(safeC, { showStudent: true, canAct: safeC.faculty === currentUser && !safeC.isRedacted }));
+          if (canView(safeC)) content.appendChild(ticketCard(safeC, { showStudent: true, canAct: (safeC.faculty === currentUser || (currentUserAccount && safeC.facultyEmail === currentUserAccount.email)) && !safeC.isRedacted }));
           else content.appendChild(lockedRow(safeC));
         });
       }
@@ -4918,7 +4993,7 @@
           const row = document.createElement("div");
           row.className = "list-row";
           const inUse = db.complaints.some(c => isDept ? c.department === item : c.category === item);
-          row.innerHTML = `<span>${item}</span>`;
+          row.innerHTML = `<span>${escapeHtml(item)}</span>`;
           const rm = document.createElement("button");
           rm.className = "rm";
           rm.textContent = inUse ? "In use" : "Remove";
