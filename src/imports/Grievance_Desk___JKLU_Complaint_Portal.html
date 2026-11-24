@@ -4048,6 +4048,61 @@
         };
       }
       let db = load();
+      let apiEnabled = false;
+      let dbEngine = "local";
+
+      const API_BASE = (() => {
+        try {
+          if (window.location.origin && window.location.origin !== "null" && window.location.protocol.startsWith("http")) {
+            return window.location.origin;
+          }
+          return window.parent.location.origin;
+        } catch (e) {
+          return "";
+        }
+      })();
+
+      function applyBootstrap(data) {
+        if (!data || !Array.isArray(data.complaints)) return;
+        db = {
+          departments: data.departments || db.departments,
+          categories: data.categories || db.categories,
+          users: data.users || db.users,
+          complaints: data.complaints || db.complaints,
+          notifications: data.notifications || [],
+          nextId: data.nextId || db.nextId || 1006
+        };
+        if (data.dbEngine) dbEngine = data.dbEngine;
+        const sideFoot = document.querySelector(".side-foot");
+        if (sideFoot && apiEnabled) {
+          sideFoot.textContent = `A private, transparent channel for campus concerns. Synced with ${dbEngine === "postgres" ? "PostgreSQL" : "SQLite"} DBMS.`;
+        }
+      }
+
+      async function apiRequest(path, options = {}) {
+        const res = await fetch(API_BASE + path, {
+          headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+          ...options
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || `Request failed (${res.status})`);
+        }
+        return data;
+      }
+
+      async function syncFromServer() {
+        try {
+          const data = await apiRequest("/api/bootstrap");
+          apiEnabled = true;
+          applyBootstrap(data);
+          if (isAuthenticated) renderPage();
+        } catch (e) {
+          apiEnabled = false;
+        }
+      }
+      void syncFromServer();
+
       function save() { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { } }
       function notify(forUser, text) {
         db.notifications.unshift({ forUser, text, when: Date.now() });
@@ -4339,32 +4394,53 @@
           return;
         }
 
-        const user = db.users.find(u => u.email.toLowerCase() === emailOrName || u.name.toLowerCase() === emailOrName);
-        if (!user) {
-          failedAttempts++;
-          if (failedAttempts >= 5) {
-            lockoutUntil = Date.now() + 30000;
-            lError.textContent = "Too many failed attempts. Security lock activated for 30 seconds.";
-          } else {
-            lError.textContent = `No account found for "${emailOrName}". Check your email or Sign Up.`;
+        let user = null;
+        if (apiEnabled) {
+          try {
+            const res = await apiRequest("/api/auth/login", {
+              method: "POST",
+              body: JSON.stringify({ emailOrName, password: plainPassword })
+            });
+            user = res.user;
+            await syncFromServer();
+          } catch (err) {
+            failedAttempts++;
+            if (failedAttempts >= 5) {
+              lockoutUntil = Date.now() + 30000;
+              lError.textContent = "Too many failed attempts. Security lock activated for 30 seconds.";
+            } else {
+              lError.textContent = err.message || "Login failed.";
+            }
+            return;
           }
-          return;
-        }
-
-        const computedHash = await sha256(user.salt + ":" + plainPassword);
-        const legacyMatch = (user.role === "student" && plainPassword === "student123") ||
-                            (user.role === "faculty" && plainPassword === "faculty123") ||
-                            (user.role === "admin" && plainPassword === "admin123");
-
-        if (user.passwordHash !== computedHash && !legacyMatch) {
-          failedAttempts++;
-          if (failedAttempts >= 5) {
-            lockoutUntil = Date.now() + 30000;
-            lError.textContent = "Too many failed attempts. Security lock activated for 30 seconds.";
-          } else {
-            lError.textContent = `Incorrect password. (${5 - failedAttempts} attempts remaining)`;
+        } else {
+          user = db.users.find(u => u.email.toLowerCase() === emailOrName || u.name.toLowerCase() === emailOrName);
+          if (!user) {
+            failedAttempts++;
+            if (failedAttempts >= 5) {
+              lockoutUntil = Date.now() + 30000;
+              lError.textContent = "Too many failed attempts. Security lock activated for 30 seconds.";
+            } else {
+              lError.textContent = `No account found for "${emailOrName}". Check your email or Sign Up.`;
+            }
+            return;
           }
-          return;
+
+          const computedHash = await sha256(user.salt + ":" + plainPassword);
+          const legacyMatch = (user.role === "student" && plainPassword === "student123") ||
+                              (user.role === "faculty" && plainPassword === "faculty123") ||
+                              (user.role === "admin" && plainPassword === "admin123");
+
+          if (user.passwordHash !== computedHash && !legacyMatch) {
+            failedAttempts++;
+            if (failedAttempts >= 5) {
+              lockoutUntil = Date.now() + 30000;
+              lError.textContent = "Too many failed attempts. Security lock activated for 30 seconds.";
+            } else {
+              lError.textContent = `Incorrect password. (${5 - failedAttempts} attempts remaining)`;
+            }
+            return;
+          }
         }
 
         failedAttempts = 0;
@@ -4427,25 +4503,47 @@
           return;
         }
 
-        const salt = "s_" + Math.random().toString(36).substring(2, 10);
-        const passwordHash = await sha256(salt + ":" + suPass);
+        let newUser = null;
+        if (apiEnabled) {
+          try {
+            const res = await apiRequest("/api/auth/signup", {
+              method: "POST",
+              body: JSON.stringify({
+                name: suName,
+                email: suEmail,
+                role: suRole,
+                dept: suDept,
+                rollNo: suRoll,
+                password: suPass
+              })
+            });
+            newUser = res.user;
+            await syncFromServer();
+          } catch (err) {
+            suError.textContent = err.message || "Sign up failed.";
+            return;
+          }
+        } else {
+          const salt = "s_" + Math.random().toString(36).substring(2, 10);
+          const passwordHash = await sha256(salt + ":" + suPass);
 
-        const newUser = {
-          id: "usr_" + Date.now(),
-          name: suName,
-          email: suEmail,
-          role: suRole,
-          dept: suRole === "student" ? "Computer Science" : suDept,
-          rollNo: suRoll,
-          passwordHash,
-          salt,
-          authProvider: "email",
-          verified: true,
-          createdAt: Date.now()
-        };
+          newUser = {
+            id: "usr_" + Date.now(),
+            name: suName,
+            email: suEmail,
+            role: suRole,
+            dept: suRole === "student" ? "Computer Science" : suDept,
+            rollNo: suRoll,
+            passwordHash,
+            salt,
+            authProvider: "email",
+            verified: true,
+            createdAt: Date.now()
+          };
 
-        db.users.push(newUser);
-        save();
+          db.users.push(newUser);
+          save();
+        }
 
         currentUser = newUser.name;
         currentUserEmail = newUser.email;
@@ -4493,7 +4591,7 @@
         window.parent.postMessage({ type: "MS_OAUTH_LOGIN_REQUEST" }, "*");
       });
 
-      window.addEventListener("message", (e) => {
+      window.addEventListener("message", async (e) => {
         const data = e.data;
         if (!data || typeof data !== "object") return;
 
@@ -4519,27 +4617,43 @@
             return;
           }
 
-          let user = db.users.find(u => u.email.toLowerCase() === email);
-          if (!user) {
-            user = {
-              id: "usr_ms_" + Date.now(),
-              name: displayName,
-              email,
-              role: "student",
-              dept: "Computer Science",
-              rollNo: "",
-              passwordHash: "",
-              salt: "",
-              authProvider: "microsoft_365",
-              verified: true,
-              createdAt: Date.now()
-            };
-            db.users.push(user);
-            save();
+          let user = null;
+          if (apiEnabled) {
+            try {
+              const res = await apiRequest("/api/auth/microsoft", {
+                method: "POST",
+                body: JSON.stringify({ email, name: displayName })
+              });
+              user = res.user;
+              await syncFromServer();
+            } catch (err) {
+              const lErr = document.getElementById("l_error");
+              if (lErr) lErr.textContent = err.message || "Microsoft sign-in sync failed.";
+              return;
+            }
           } else {
-            user.authProvider = "microsoft_365";
-            if (displayName && !user.name) user.name = displayName;
-            save();
+            user = db.users.find(u => u.email.toLowerCase() === email);
+            if (!user) {
+              user = {
+                id: "usr_ms_" + Date.now(),
+                name: displayName,
+                email,
+                role: "student",
+                dept: "Computer Science",
+                rollNo: "",
+                passwordHash: "",
+                salt: "",
+                authProvider: "microsoft_365",
+                verified: true,
+                createdAt: Date.now()
+              };
+              db.users.push(user);
+              save();
+            } else {
+              user.authProvider = "microsoft_365";
+              if (displayName && !user.name) user.name = displayName;
+              save();
+            }
           }
 
           failedAttempts = 0;
@@ -4609,10 +4723,24 @@
         return el;
       }
 
-      function handleToggleUpvote(c) {
+      async function handleToggleUpvote(c) {
         if (c.confidential) return;
         if (role !== "student") {
           toast(`👥 ${(c.upvotes && c.upvotes.length) || 0} student${(c.upvotes && c.upvotes.length === 1) ? '' : 's'} have backed this complaint.`);
+          return;
+        }
+        if (apiEnabled) {
+          try {
+            const res = await apiRequest(`/api/complaints/${encodeURIComponent(c.id)}/upvote`, {
+              method: "POST",
+              body: JSON.stringify({ userEmail: currentUserEmail, userName: currentUser })
+            });
+            applyBootstrap(res.bootstrap);
+            renderPage();
+            toast(res.added ? `🙌 Upvoted! We recorded your support on ${c.id}.` : "Upvote removed");
+          } catch (err) {
+            toast(err.message || "Could not update upvote");
+          }
           return;
         }
         if (!c.upvotes) c.upvotes = [];
@@ -4715,8 +4843,20 @@
             const adv = document.createElement("button");
             adv.className = "btn";
             adv.textContent = "Advance to: " + STAGES[c.stageIndex + 1];
-            adv.addEventListener("click", (e) => {
+            adv.addEventListener("click", async (e) => {
               e.stopPropagation();
+              if (apiEnabled) {
+                try {
+                  const res = await apiRequest(`/api/complaints/${encodeURIComponent(c.id)}/advance`, {
+                    method: "POST",
+                    body: JSON.stringify({ actorEmail: currentUserEmail, actorName: currentUser })
+                  });
+                  applyBootstrap(res.bootstrap);
+                  renderPage();
+                  toast("Status updated");
+                } catch (err) { toast(err.message || "Update failed"); }
+                return;
+              }
               c.stageIndex++;
               c.comments.push({ who: currentUser, text: `Moved to "${STAGES[c.stageIndex]}".`, when: Date.now() });
               notify(c.student, `${c.id} was marked "${STAGES[c.stageIndex]}".`);
@@ -4728,8 +4868,20 @@
             const esc = document.createElement("button");
             esc.className = "btn ghost";
             esc.textContent = "Escalate";
-            esc.addEventListener("click", (e) => {
+            esc.addEventListener("click", async (e) => {
               e.stopPropagation();
+              if (apiEnabled) {
+                try {
+                  const res = await apiRequest(`/api/complaints/${encodeURIComponent(c.id)}/escalate`, {
+                    method: "POST",
+                    body: JSON.stringify({ actorEmail: currentUserEmail, actorName: currentUser })
+                  });
+                  applyBootstrap(res.bootstrap);
+                  renderPage();
+                  toast("Complaint escalated");
+                } catch (err) { toast(err.message || "Escalation failed"); }
+                return;
+              }
               c.escalated = true;
               c.comments.push({ who: currentUser, text: "Escalated this complaint to the department head.", when: Date.now() });
               notify(c.student, `${c.id} was escalated to the department head.`);
@@ -4742,8 +4894,20 @@
             const resolveEsc = document.createElement("button");
             resolveEsc.className = "btn ghost";
             resolveEsc.textContent = "Clear escalation, resume review";
-            resolveEsc.addEventListener("click", (e) => {
+            resolveEsc.addEventListener("click", async (e) => {
               e.stopPropagation();
+              if (apiEnabled) {
+                try {
+                  const res = await apiRequest(`/api/complaints/${encodeURIComponent(c.id)}/clear-escalation`, {
+                    method: "POST",
+                    body: JSON.stringify({ actorEmail: currentUserEmail, actorName: currentUser })
+                  });
+                  applyBootstrap(res.bootstrap);
+                  renderPage();
+                  toast("Escalation cleared");
+                } catch (err) { toast(err.message || "Action failed"); }
+                return;
+              }
               c.escalated = false;
               c.comments.push({ who: currentUser, text: "Escalation cleared, resuming normal review.", when: Date.now() });
               notify(c.student, `${c.id} escalation was cleared; review has resumed.`);
@@ -4768,10 +4932,23 @@
         }
         const attachInput = body.querySelector("[data-attach-input]");
         attachInput.addEventListener("click", e => e.stopPropagation());
-        attachInput.addEventListener("change", () => {
+        attachInput.addEventListener("change", async () => {
           if (attachInput.files && attachInput.files[0]) {
-            c.attachments.push(attachInput.files[0].name);
-            c.comments.push({ who: currentUser, text: `Attached a file: ${attachInput.files[0].name}`, when: Date.now() });
+            const fileName = attachInput.files[0].name;
+            if (apiEnabled) {
+              try {
+                const res = await apiRequest(`/api/complaints/${encodeURIComponent(c.id)}/attachments`, {
+                  method: "POST",
+                  body: JSON.stringify({ fileName, userEmail: currentUserEmail, userName: currentUser })
+                });
+                applyBootstrap(res.bootstrap);
+                renderPage();
+                toast("File attached");
+              } catch (err) { toast(err.message || "Attachment failed"); }
+              return;
+            }
+            c.attachments.push(fileName);
+            c.comments.push({ who: currentUser, text: `Attached a file: ${fileName}`, when: Date.now() });
             const other = currentUser === c.student ? c.faculty : c.student;
             notify(other, `${c.id} got a new attachment from ${currentUser}.`);
             save(); renderPage(); toast("File attached");
@@ -4820,9 +4997,21 @@
         }
         const input = body.querySelector("[data-comment-input]");
         const sendBtn = body.querySelector("[data-comment-send]");
-        function sendComment() {
+        async function sendComment() {
           const v = input.value.trim();
           if (!v) return;
+          if (apiEnabled) {
+            try {
+              const res = await apiRequest(`/api/complaints/${encodeURIComponent(c.id)}/comments`, {
+                method: "POST",
+                body: JSON.stringify({ text: v, userEmail: currentUserEmail, userName: currentUser })
+              });
+              input.value = "";
+              applyBootstrap(res.bootstrap);
+              renderPage();
+            } catch (err) { toast(err.message || "Could not post comment"); }
+            return;
+          }
           c.comments.push({ who: currentUser, text: v, when: Date.now() });
           const other = currentUser === c.student ? c.faculty : c.student;
           notify(other, `${currentUser} commented on ${c.id}.`);
@@ -4989,24 +5178,52 @@
         syncDepartmentsAndHandler(false);
         syncConfidential();
 
-        panel.querySelector("#f_submit").addEventListener("click", () => {
+        panel.querySelector("#f_submit").addEventListener("click", async () => {
           const title = panel.querySelector("#f_title").value.trim();
           const desc = panel.querySelector("#f_desc").value.trim();
           if (!title || !desc) { toast("Add a title and description first"); return; }
           if (desc.length < 10) { toast("Please enter a description of at least 10 characters"); return; }
+          const category = panel.querySelector("#f_cat").value;
           const dept = panel.querySelector("#f_dept").value;
+          const attachments = Array.from(fileInput.files).map(f => f.name);
+
+          if (apiEnabled) {
+            try {
+              const res = await apiRequest("/api/complaints", {
+                method: "POST",
+                body: JSON.stringify({
+                  title,
+                  desc,
+                  category,
+                  department: dept,
+                  student: currentUser,
+                  studentEmail: currentUserEmail,
+                  confidential: confChk.checked,
+                  attachments
+                })
+              });
+              applyBootstrap(res.bootstrap);
+              toast("Complaint " + res.complaintId + " submitted and routed to " + res.facultyName);
+              currentPage = "mine";
+              renderNav(); renderPage();
+            } catch (err) {
+              toast(err.message || "Failed to submit complaint");
+            }
+            return;
+          }
+
           const handler = resolveHandlerForDept(dept);
           const c = {
             id: "CMP-" + (db.nextId++),
             title, desc,
-            category: panel.querySelector("#f_cat").value,
+            category,
             department: dept,
             student: currentUser,
             studentEmail: currentUserEmail,
             faculty: handler.name,
             facultyEmail: handler.email || (handler.name.toLowerCase().replace(/[^a-z]/g, "") + "@jklu.edu.in"),
             stageIndex: 0, escalated: false, confidential: confChk.checked,
-            created: Date.now(), comments: [], attachments: Array.from(fileInput.files).map(f => f.name),
+            created: Date.now(), comments: [], attachments,
             upvotes: []
           };
           db.complaints.unshift(c);
@@ -5070,7 +5287,7 @@
 
       function renderNotifications() {
         pageTitle.textContent = "Notifications";
-        const mine = db.notifications.filter(n => n.forUser === currentUser || (currentUserAccount && n.forUser === currentUserAccount.email)).sort((a, b) => b.when - a.when);
+        const mine = db.notifications.filter(n => n.forUser === currentUser || (currentUserAccount && (n.forUser === currentUserAccount.email || n.forEmail === currentUserAccount.email))).sort((a, b) => b.when - a.when);
         pageSub.textContent = mine.length + " notification" + (mine.length === 1 ? "" : "s") + " for " + currentUser + ".";
         const panel = document.createElement("div");
         panel.className = "panel";
@@ -5105,7 +5322,17 @@
           rm.textContent = inUse ? "In use" : "Remove";
           rm.disabled = inUse;
           if (!inUse) {
-            rm.addEventListener("click", () => {
+            rm.addEventListener("click", async () => {
+              if (apiEnabled) {
+                try {
+                  const res = await apiRequest(`/api/${isDept ? "departments" : "categories"}/${encodeURIComponent(item)}`, {
+                    method: "DELETE"
+                  });
+                  applyBootstrap(res.bootstrap);
+                  renderPage();
+                } catch (err) { toast(err.message || "Could not remove item"); }
+                return;
+              }
               list.splice(idx, 1);
               save(); renderPage();
             });
@@ -5120,10 +5347,21 @@
         panel.appendChild(addRow);
         content.appendChild(panel);
         const inp = addRow.querySelector("[data-new-item]");
-        function addItem() {
+        async function addItem() {
           const v = inp.value.trim();
           if (!v) return;
           if (list.includes(v)) { toast("Already exists"); return; }
+          if (apiEnabled) {
+            try {
+              const res = await apiRequest(`/api/${isDept ? "departments" : "categories"}`, {
+                method: "POST",
+                body: JSON.stringify({ name: v })
+              });
+              applyBootstrap(res.bootstrap);
+              renderPage();
+            } catch (err) { toast(err.message || "Could not add item"); }
+            return;
+          }
           list.push(v);
           save(); renderPage();
         }
