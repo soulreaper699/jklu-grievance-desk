@@ -1,0 +1,10 @@
+{
+  "description": "Create and customize professional webpages effortlessly with intuitive tools designed for users seeking fast, polished online presence solutions.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
