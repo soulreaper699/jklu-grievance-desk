@@ -3568,6 +3568,21 @@
 
       <!-- Sign In Form Panel -->
       <div id="authSignInPanel">
+        <button type="button" class="sso-btn-outlook" id="msOutlookSignInBtn">
+          <svg width="18" height="18" viewBox="0 0 21 21" aria-hidden="true">
+            <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+            <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+            <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+            <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+          </svg>
+          <span>Continue with Microsoft Outlook</span>
+        </button>
+        <div class="sso-badge">
+          <span>Microsoft MSAL 2.0 OAuth</span>
+          <span>·</span>
+          <button type="button" id="msConfigOpenBtn" style="background:none; border:none; color:var(--brand); font:600 11.5px/1 inherit; cursor:pointer; padding:0; text-decoration:underline;">Configure App ID</button>
+        </div>
+        <div class="auth-divider"><span>or sign in with password</span></div>
         <div class="field">
           <label>University Outlook Email</label>
           <input type="email" id="l_email" placeholder="e.g. chirag.negi@jklu.edu.in" autocomplete="username">
@@ -3694,6 +3709,47 @@
     </main>
   </div>
   <div class="toast" id="toast"></div>
+
+  <!-- Microsoft Azure AD / MSAL Configuration Modal -->
+  <div class="ms-sso-modal" id="msConfigModal" style="display:none;">
+    <div class="ms-sso-card">
+      <div class="ms-sso-header">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <svg width="24" height="24" viewBox="0 0 21 21" aria-hidden="true">
+            <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+            <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+            <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+            <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+          </svg>
+          <span style="font-size:15px; font-weight:600; color:#605E5C;">Microsoft Entra ID (MSAL)</span>
+        </div>
+        <button type="button" id="msConfigCloseBtn" aria-label="Close modal" style="background:none; border:none; font-size:20px; color:#605E5C; cursor:pointer; line-height:1;">×</button>
+      </div>
+      <h2>Connect Microsoft Outlook Login</h2>
+      <div class="ms-tenant-badge">
+        <span>Redirect URI (SPA):</span>
+        <code id="msRedirectUriDisplay" style="font-size:11.5px; color:#0078D4; font-weight:600;"></code>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:12px; margin-bottom:16px;">
+        <div>
+          <label for="msClientIdInput" style="display:block; font-size:12px; font-weight:600; color:#323130; margin-bottom:5px;">Azure Application (Client) ID</label>
+          <input type="text" id="msClientIdInput" placeholder="e.g. 12345678-abcd-1234-efgh-1234567890ab" style="width:100%; padding:9px 10px; border:1px solid #C8C6C4; border-radius:6px; font-size:13px; color:#1B1B1B; background:#FFFFFF;">
+        </div>
+        <div>
+          <label for="msTenantIdInput" style="display:block; font-size:12px; font-weight:600; color:#323130; margin-bottom:5px;">Directory (Tenant) ID (optional)</label>
+          <input type="text" id="msTenantIdInput" placeholder="common (or your JKLU tenant ID)" style="width:100%; padding:9px 10px; border:1px solid #C8C6C4; border-radius:6px; font-size:13px; color:#1B1B1B; background:#FFFFFF;">
+        </div>
+      </div>
+      <div id="msConfigError" style="font-size:12px; color:#B91C1C; min-height:16px; margin-bottom:10px;"></div>
+      <div style="display:flex; gap:10px;">
+        <button type="button" class="sso-btn-outlook" id="msConfigSaveAndLoginBtn" style="flex:1;">Save & Sign In</button>
+        <button type="button" id="msConfigSaveOnlyBtn" style="padding:10px 14px; border:1px solid #C8C6C4; border-radius:8px; background:#F3F2F1; color:#201F1E; font-weight:600; font-size:13px; cursor:pointer;">Save Only</button>
+      </div>
+      <p style="font-size:11.5px; color:#605E5C; margin:14px 0 0; line-height:1.5;">
+        In Azure Portal → App Registrations → Authentication, add the Redirect URI above under <strong>Single-page application (SPA)</strong>.
+      </p>
+    </div>
+  </div>
 
   <script>
     (function () {
@@ -4154,7 +4210,13 @@
         if (idName) idName.textContent = currentUser;
         if (idRole) idRole.textContent = (role.charAt(0).toUpperCase() + role.slice(1)) + (currentUserAccount && currentUserAccount.dept ? " · " + currentUserAccount.dept : "");
         if (idBadge) {
-          idBadge.innerHTML = `<span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#10B981;"></span> <span>🛡️ Verified JKLU Account (@jklu.edu.in)</span>`;
+          const isMs = authProvider === "microsoft_365";
+          const label = isMs
+            ? (currentUserEmail && currentUserEmail.endsWith("@jklu.edu.in")
+              ? "🛡️ Verified Microsoft 365 (@jklu.edu.in)"
+              : `🛡️ Verified Microsoft Outlook (${escapeHtml(currentUserEmail || "")})`)
+            : "🛡️ Verified JKLU Account (@jklu.edu.in)";
+          idBadge.innerHTML = `<span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#10B981;"></span> <span>${label}</span>`;
           idBadge.style.color = "#10B981";
         }
       }
@@ -4451,9 +4513,181 @@
         currentUserAccount = null;
         document.getElementById("l_pass").value = "";
         document.getElementById("l_error").textContent = "";
+        try { window.parent.postMessage({ type: "MS_OAUTH_LOGOUT_REQUEST" }, "*"); } catch (e) { }
         showLanding();
         toast("Logged out successfully.");
       });
+
+      // ---- Microsoft MSAL OAuth Bridge ----
+      const msOutlookBtn = document.getElementById("msOutlookSignInBtn");
+      const msConfigModal = document.getElementById("msConfigModal");
+      const msConfigOpenBtn = document.getElementById("msConfigOpenBtn");
+      const msConfigCloseBtn = document.getElementById("msConfigCloseBtn");
+      const msClientIdInput = document.getElementById("msClientIdInput");
+      const msTenantIdInput = document.getElementById("msTenantIdInput");
+      const msRedirectUriDisplay = document.getElementById("msRedirectUriDisplay");
+      const msConfigError = document.getElementById("msConfigError");
+      const msConfigSaveAndLoginBtn = document.getElementById("msConfigSaveAndLoginBtn");
+      const msConfigSaveOnlyBtn = document.getElementById("msConfigSaveOnlyBtn");
+
+      let msOAuthConfig = { clientId: "", tenantId: "common", redirectUri: window.location.origin + "/oauth-callback.html" };
+
+      function setOutlookBtnLoading(loading) {
+        if (!msOutlookBtn) return;
+        msOutlookBtn.disabled = loading;
+        msOutlookBtn.style.opacity = loading ? "0.75" : "";
+        const span = msOutlookBtn.querySelector("span");
+        if (span) span.textContent = loading ? "Opening Microsoft Sign-In..." : "Continue with Microsoft Outlook";
+      }
+
+      function openMsConfigModal(message) {
+        if (!msConfigModal) return;
+        if (msRedirectUriDisplay) msRedirectUriDisplay.textContent = msOAuthConfig.redirectUri || (window.location.origin + "/oauth-callback.html");
+        if (msClientIdInput) msClientIdInput.value = msOAuthConfig.clientId || "";
+        if (msTenantIdInput) msTenantIdInput.value = msOAuthConfig.tenantId || "common";
+        if (msConfigError) msConfigError.textContent = message || "";
+        msConfigModal.style.display = "flex";
+        setTimeout(() => msClientIdInput?.focus(), 40);
+      }
+
+      function closeMsConfigModal() {
+        if (msConfigModal) msConfigModal.style.display = "none";
+      }
+
+      function saveMsConfigFromModal() {
+        const clientId = (msClientIdInput?.value || "").trim();
+        const tenantId = (msTenantIdInput?.value || "").trim() || "common";
+        if (!clientId) {
+          if (msConfigError) msConfigError.textContent = "Enter your Azure Application (Client) ID first.";
+          return null;
+        }
+        if (msConfigError) msConfigError.textContent = "";
+        msOAuthConfig.clientId = clientId;
+        msOAuthConfig.tenantId = tenantId;
+        window.parent.postMessage({ type: "MS_OAUTH_SAVE_CONFIG", clientId, tenantId }, "*");
+        return { clientId, tenantId };
+      }
+
+      function triggerMicrosoftLogin(overrideCfg) {
+        const lErr = document.getElementById("l_error");
+        if (lErr) lErr.textContent = "";
+        setOutlookBtnLoading(true);
+        window.parent.postMessage({
+          type: "MS_OAUTH_LOGIN_REQUEST",
+          clientId: overrideCfg?.clientId || msOAuthConfig.clientId || "",
+          tenantId: overrideCfg?.tenantId || msOAuthConfig.tenantId || "common"
+        }, "*");
+      }
+
+      msOutlookBtn?.addEventListener("click", () => triggerMicrosoftLogin());
+      msConfigOpenBtn?.addEventListener("click", () => {
+        window.parent.postMessage({ type: "MS_OAUTH_GET_CONFIG" }, "*");
+        openMsConfigModal("");
+      });
+      msConfigCloseBtn?.addEventListener("click", closeMsConfigModal);
+      msConfigModal?.addEventListener("click", (e) => { if (e.target === msConfigModal) closeMsConfigModal(); });
+      msConfigSaveOnlyBtn?.addEventListener("click", () => {
+        if (saveMsConfigFromModal()) {
+          closeMsConfigModal();
+          toast("Microsoft OAuth Client ID saved locally.");
+        }
+      });
+      msConfigSaveAndLoginBtn?.addEventListener("click", () => {
+        const saved = saveMsConfigFromModal();
+        if (saved) {
+          closeMsConfigModal();
+          triggerMicrosoftLogin(saved);
+        }
+      });
+
+      window.addEventListener("message", (e) => {
+        const data = e.data;
+        if (!data || typeof data !== "object") return;
+
+        if (data.type === "MS_OAUTH_CONFIG") {
+          msOAuthConfig = {
+            clientId: data.clientId || "",
+            tenantId: data.tenantId || "common",
+            redirectUri: data.redirectUri || msOAuthConfig.redirectUri
+          };
+          if (msRedirectUriDisplay) msRedirectUriDisplay.textContent = msOAuthConfig.redirectUri;
+          if (msClientIdInput && !msClientIdInput.value) msClientIdInput.value = msOAuthConfig.clientId;
+          if (msTenantIdInput && !msTenantIdInput.value) msTenantIdInput.value = msOAuthConfig.tenantId;
+          return;
+        }
+
+        if (data.type === "MS_OAUTH_NEEDS_CONFIG") {
+          setOutlookBtnLoading(false);
+          if (data.redirectUri) msOAuthConfig.redirectUri = data.redirectUri;
+          openMsConfigModal("Enter your Azure App Client ID to launch Microsoft Outlook OAuth.");
+          return;
+        }
+
+        if (data.type === "MS_OAUTH_ERROR") {
+          setOutlookBtnLoading(false);
+          const lErr = document.getElementById("l_error");
+          const msg = data.errorMessage || "Microsoft sign-in could not be completed.";
+          if (lErr) lErr.textContent = msg;
+          toast("Microsoft sign-in cancelled or failed");
+          return;
+        }
+
+        if (data.type === "MS_OAUTH_SUCCESS") {
+          setOutlookBtnLoading(false);
+          const account = data.account || {};
+          const claims = data.idTokenClaims || {};
+          const email = String(account.username || claims.preferred_username || claims.email || "").trim().toLowerCase();
+          const displayName = String(account.name || claims.name || (email ? email.split("@")[0] : "Microsoft User")).trim();
+
+          if (!email) {
+            const lErr = document.getElementById("l_error");
+            if (lErr) lErr.textContent = "Microsoft login succeeded, but no email address was returned.";
+            return;
+          }
+
+          let user = db.users.find(u => u.email.toLowerCase() === email);
+          if (!user) {
+            user = {
+              id: "usr_ms_" + Date.now(),
+              name: displayName,
+              email,
+              role: "student",
+              dept: "Computer Science",
+              rollNo: "",
+              passwordHash: "",
+              salt: "",
+              authProvider: "microsoft_365",
+              verified: true,
+              createdAt: Date.now()
+            };
+            db.users.push(user);
+            save();
+          } else {
+            user.authProvider = "microsoft_365";
+            if (displayName && !user.name) user.name = displayName;
+            save();
+          }
+
+          failedAttempts = 0;
+          currentUser = user.name;
+          currentUserEmail = user.email;
+          currentUserAccount = user;
+          role = user.role;
+          authProvider = "microsoft_365";
+          isAuthenticated = true;
+
+          const lErr = document.getElementById("l_error");
+          if (lErr) lErr.textContent = "";
+          updateUserBadge();
+
+          currentPage = role === "student" ? (postLoginTarget === "browse" ? "browse" : "new") : role === "faculty" ? "queue" : "depts";
+          showPortal(currentPage);
+          postLoginTarget = null;
+          toast(`Signed in with Microsoft Outlook as ${currentUser}`);
+        }
+      });
+
+      try { window.parent.postMessage({ type: "MS_OAUTH_GET_CONFIG" }, "*"); } catch (e) { }
 
       function renderNav() {
         let items;

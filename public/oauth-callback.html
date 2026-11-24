@@ -17,8 +17,8 @@
     .card {
       background: #FFFFFF;
       padding: 36px 32px;
-      border-radius: 8px;
-      box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+      border-radius: 10px;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
       text-align: center;
       max-width: 380px;
       width: 100%;
@@ -47,10 +47,11 @@
       line-height: 1.5;
     }
   </style>
+  <script src="/msal-redirect-bridge.min.js"></script>
 </head>
 <body>
   <div class="card">
-    <svg width="32" height="32" viewBox="0 0 21 21">
+    <svg width="32" height="32" viewBox="0 0 21 21" aria-hidden="true">
       <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
       <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
       <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
@@ -58,35 +59,24 @@
     </svg>
     <h2>Connecting to JKLU Portal</h2>
     <div class="spinner"></div>
-    <p id="statusMsg">Verifying official Microsoft 365 credentials...</p>
+    <p id="statusMsg">Completing Microsoft 365 authentication...</p>
   </div>
 
   <script>
-    (function () {
-      const hash = window.location.hash;
-      const search = window.location.search;
-      const payload = { type: "MS_OAUTH_RESPONSE", hash: hash, search: search };
-
+    (async function () {
+      const statusEl = document.getElementById("statusMsg");
       try {
-        sessionStorage.setItem("ms_oauth_result", JSON.stringify(payload));
-      } catch (e) {}
-
-      if (window.opener && !window.opener.closed) {
-        try {
-          window.opener.postMessage(payload, "*");
-          document.getElementById("statusMsg").textContent = "Authenticated! Returning to portal...";
-          setTimeout(() => {
-            window.close();
-          }, 600);
-        } catch (err) {
-          window.location.replace("/" + hash);
+        if (window.msalRedirectBridge && typeof window.msalRedirectBridge.broadcastResponseToMainFrame === "function") {
+          await window.msalRedirectBridge.broadcastResponseToMainFrame();
+          if (statusEl) statusEl.textContent = "Authenticated! Returning to portal...";
+          return;
         }
-      } else {
-        // Direct redirect without popup
-        setTimeout(() => {
-          window.location.replace("/" + hash);
-        }, 500);
+      } catch (err) {
+        if (statusEl) statusEl.textContent = "Redirecting back to portal...";
       }
+      setTimeout(() => {
+        window.location.replace("/" + window.location.hash + window.location.search);
+      }, 400);
     })();
   </script>
 </body>
